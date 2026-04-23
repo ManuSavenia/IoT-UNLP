@@ -7,7 +7,6 @@
 
 static AsyncWebServer _server(SERVER_PORT);
 
-// Guardamos tu HTML en la memoria de programa (Flash) como un string gigante
 const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE HTML>
 <html lang="es">
@@ -24,16 +23,17 @@ const char index_html[] PROGMEM = R"rawliteral(
       --text-dark:   #1b5e20;
       --border-green:#81c784;
     }
+    * { box-sizing: border-box; }
     body {
       font-family: 'Segoe UI', Tahoma, sans-serif;
       background-color: var(--bg-blue);
       margin: 0;
       display: flex;
-      justify-content: center;
+      flex-direction: column;
       align-items: center;
       min-height: 100vh;
       padding: 20px;
-      box-sizing: border-box;
+      gap: 20px;
     }
     .main-container {
       display: flex;
@@ -60,7 +60,7 @@ const char index_html[] PROGMEM = R"rawliteral(
       background-color: var(--panel-light);
       border-right: 2px solid var(--card-green);
     }
-    .right { background-color: #ffffff; padding: 40px; }
+    .right { background-color: #ffffff; }
     .btn {
       width: 100%;
       background-color: var(--accent-green);
@@ -86,7 +86,6 @@ const char index_html[] PROGMEM = R"rawliteral(
       color: var(--text-dark);
       text-align: center;
       font-size: 0.95rem;
-      box-sizing: border-box;
     }
     .card {
       width: 100%;
@@ -96,7 +95,6 @@ const char index_html[] PROGMEM = R"rawliteral(
       text-align: center;
       color: var(--text-dark);
       border: 1px solid var(--border-green);
-      box-sizing: border-box;
     }
     .val {
       font-size: 3.2rem;
@@ -111,14 +109,56 @@ const char index_html[] PROGMEM = R"rawliteral(
       text-transform: uppercase;
       letter-spacing: 1px;
     }
+
+    /* ── Historial ── */
+    .history-container {
+      width: 100%;
+      max-width: 850px;
+      background: white;
+      border-radius: 25px;
+      box-shadow: 0 15px 35px rgba(0,0,0,0.15);
+      padding: 30px 40px;
+    }
+    .history-container h3 {
+      margin: 0 0 16px 0;
+      color: var(--text-dark);
+      font-size: 1rem;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      opacity: 0.7;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+    }
+    th {
+      background: var(--card-green);
+      color: var(--text-dark);
+      padding: 10px 14px;
+      text-align: left;
+      font-weight: 600;
+    }
+    th:first-child { border-radius: 10px 0 0 10px; }
+    th:last-child  { border-radius: 0 10px 10px 0; }
+    td {
+      padding: 9px 14px;
+      border-bottom: 1px solid #f0f0f0;
+      color: #333;
+    }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #f9fbe7; }
+
     @media (max-width: 768px) {
-      .main-container { flex-direction: column; max-width: 100%; min-height: auto; }
+      .main-container { flex-direction: column; min-height: auto; }
       .left { border-right: none; border-bottom: 2px solid var(--card-green); padding: 30px 20px; }
       .right { padding: 30px 20px; }
+      .history-container { padding: 20px; }
     }
   </style>
 </head>
 <body>
+
   <div class="main-container">
     <div class="panel left">
       <button class="btn" onclick="fetch('/toggle')">TOGGLE LED</button>
@@ -137,7 +177,36 @@ const char index_html[] PROGMEM = R"rawliteral(
       </div>
     </div>
   </div>
+
+  <div class="history-container">
+    <h3>Historial de mediciones</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Tiempo</th>
+          <th>Temperatura</th>
+          <th>Humedad</th>
+        </tr>
+      </thead>
+      <tbody id="history-body">
+        <tr><td colspan="4" style="text-align:center;opacity:0.5">Cargando...</td></tr>
+      </tbody>
+    </table>
+  </div>
+
   <script>
+    function msToTime(ms) {
+      let s = Math.floor(ms / 1000);
+      let m = Math.floor(s / 60);
+      let h = Math.floor(m / 60);
+      s = s % 60;
+      m = m % 60;
+      if (h > 0) return h + 'h ' + m + 'm ' + s + 's';
+      if (m > 0) return m + 'm ' + s + 's';
+      return s + 's';
+    }
+
     function update() {
       fetch('/data')
         .then(r => r.json())
@@ -149,10 +218,32 @@ const char index_html[] PROGMEM = R"rawliteral(
           document.getElementById('hs').innerText = d.ho ? 'CONECTADO' : 'ERROR';
         })
         .catch(() => {
-          ['tv','hv','wn','ts','hs'].forEach(id => document.getElementById(id).innerText = '...');
+          ['tv','hv','wn','ts','hs'].forEach(id =>
+            document.getElementById(id).innerText = '...'
+          );
+        });
+
+      fetch('/api/metrics')
+        .then(r => r.json())
+        .then(records => {
+          const tbody = document.getElementById('history-body');
+          if (records.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;opacity:0.5">Sin datos aún</td></tr>';
+            return;
+          }
+          // Mostrar del más nuevo al más viejo
+          tbody.innerHTML = records.slice().reverse().map((r, i) =>
+            `<tr>
+              <td>${records.length - i}</td>
+              <td>${msToTime(r.ms)}</td>
+              <td>${r.t}°C</td>
+              <td>${r.h}%</td>
+            </tr>`
+          ).join('');
         });
     }
-    setInterval(update, 2000);
+
+    setInterval(update, 2500);
     update();
   </script>
 </body>
@@ -172,7 +263,6 @@ static String build_json() {
 }
 
 void web_init() {
-  // Servimos el string directamente desde la memoria
   _server.on("/", HTTP_GET, [](AsyncWebServerRequest *req) {
     req->send(200, "text/html", index_html);
   });
@@ -186,6 +276,15 @@ void web_init() {
     req->send(200, "text/plain", "OK");
   });
 
+  // Endpoint REST con historial completo
+  _server.on("/api/metrics", HTTP_GET, [](AsyncWebServerRequest *req) {
+    req->send(200, "application/json", sensor_history_json());
+  });
+
+  _server.onNotFound([](AsyncWebServerRequest *req) {
+    req->send(404, "text/plain", "No encontrado");
+  });
+
   _server.begin();
-  Serial.println("[Web] Servidor iniciado (Modo String - No SPIFFS)");
+  Serial.println("[Web] Servidor iniciado en puerto " + String(SERVER_PORT));
 }

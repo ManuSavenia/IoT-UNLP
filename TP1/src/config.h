@@ -16,5 +16,5 @@
 // ─── DHT ──────────────────────────────────────────────────────────────────────
 #define DHT_READ_INTERVAL_MS 2500
 
-// ─── SPIFFS ───────────────────────────────────────────────────────────────────
-#define HTML_PATH "/index.html"
+// ─── Historial ────────────────────────────────────────────────────────────────
+#define HISTORY_SIZE 20   // cantidad de lecturas que se guardan
