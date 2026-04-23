@@ -1,0 +1,191 @@
+#pragma once
+#include <ESPAsyncWebServer.h>
+#include <WiFi.h>
+#include "config.h"
+#include "sensor.h"
+#include "led.h"
+
+static AsyncWebServer _server(SERVER_PORT);
+
+// Guardamos tu HTML en la memoria de programa (Flash) como un string gigante
+const char index_html[] PROGMEM = R"rawliteral(
+<!DOCTYPE HTML>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>IoT UNLP - Dashboard</title>
+  <style>
+    :root {
+      --bg-blue:     #e3f2fd;
+      --panel-light: #f1f8e9;
+      --accent-green:#4caf50;
+      --card-green:  #c8e6c9;
+      --text-dark:   #1b5e20;
+      --border-green:#81c784;
+    }
+    body {
+      font-family: 'Segoe UI', Tahoma, sans-serif;
+      background-color: var(--bg-blue);
+      margin: 0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      padding: 20px;
+      box-sizing: border-box;
+    }
+    .main-container {
+      display: flex;
+      flex-direction: row;
+      width: 100%;
+      max-width: 850px;
+      min-height: 450px;
+      background: white;
+      border-radius: 25px;
+      box-shadow: 0 15px 35px rgba(0,0,0,0.15);
+      overflow: hidden;
+      border: 1px solid rgba(255,255,255,0.5);
+    }
+    .panel {
+      flex: 1;
+      padding: 40px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      justify-content: center;
+      align-items: center;
+    }
+    .left {
+      background-color: var(--panel-light);
+      border-right: 2px solid var(--card-green);
+    }
+    .right { background-color: #ffffff; padding: 40px; }
+    .btn {
+      width: 100%;
+      background-color: var(--accent-green);
+      color: white;
+      padding: 22px;
+      font-size: 1.3rem;
+      font-weight: bold;
+      border: none;
+      border-radius: 15px;
+      cursor: pointer;
+      transition: 0.3s;
+      box-shadow: 0 4px 10px rgba(76,175,80,0.3);
+      text-transform: uppercase;
+    }
+    .btn:hover  { background-color: #388e3c; transform: translateY(-2px); }
+    .btn:active { transform: translateY(0); }
+    .status {
+      width: 100%;
+      background: white;
+      border: 1.5px solid var(--border-green);
+      padding: 14px;
+      border-radius: 12px;
+      color: var(--text-dark);
+      text-align: center;
+      font-size: 0.95rem;
+      box-sizing: border-box;
+    }
+    .card {
+      width: 100%;
+      background: var(--card-green);
+      padding: 25px;
+      border-radius: 20px;
+      text-align: center;
+      color: var(--text-dark);
+      border: 1px solid var(--border-green);
+      box-sizing: border-box;
+    }
+    .val {
+      font-size: 3.2rem;
+      font-weight: 800;
+      display: block;
+      margin: 5px 0;
+    }
+    h2 {
+      margin: 0;
+      font-size: 1rem;
+      opacity: 0.7;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    @media (max-width: 768px) {
+      .main-container { flex-direction: column; max-width: 100%; min-height: auto; }
+      .left { border-right: none; border-bottom: 2px solid var(--card-green); padding: 30px 20px; }
+      .right { padding: 30px 20px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="main-container">
+    <div class="panel left">
+      <button class="btn" onclick="fetch('/toggle')">TOGGLE LED</button>
+      <div class="status">Sensor Temp: <strong id="ts">--</strong></div>
+      <div class="status">Sensor Hum:  <strong id="hs">--</strong></div>
+      <div class="status">WiFi: <strong id="wn">--</strong></div>
+    </div>
+    <div class="panel right">
+      <div class="card">
+        <h2>Temperatura</h2>
+        <span class="val" id="tv">--</span>
+      </div>
+      <div class="card">
+        <h2>Humedad</h2>
+        <span class="val" id="hv">--</span>
+      </div>
+    </div>
+  </div>
+  <script>
+    function update() {
+      fetch('/data')
+        .then(r => r.json())
+        .then(d => {
+          document.getElementById('tv').innerText = d.t + '°C';
+          document.getElementById('hv').innerText = d.h + '%';
+          document.getElementById('wn').innerText = d.w;
+          document.getElementById('ts').innerText = d.to ? 'CONECTADO' : 'ERROR';
+          document.getElementById('hs').innerText = d.ho ? 'CONECTADO' : 'ERROR';
+        })
+        .catch(() => {
+          ['tv','hv','wn','ts','hs'].forEach(id => document.getElementById(id).innerText = '...');
+        });
+    }
+    setInterval(update, 2000);
+    update();
+  </script>
+</body>
+</html>
+)rawliteral";
+
+static String build_json() {
+  SensorData d = sensor_get();
+  String json = "{";
+  json += "\"t\":"   + String(d.temperature, 1) + ",";
+  json += "\"h\":"   + String(d.humidity, 1)    + ",";
+  json += "\"w\":\"" + String(WiFi.SSID())      + "\",";
+  json += "\"to\":"  + String(d.tempOk ? "true" : "false") + ",";
+  json += "\"ho\":"  + String(d.humOk  ? "true" : "false");
+  json += "}";
+  return json;
+}
+
+void web_init() {
+  // Servimos el string directamente desde la memoria
+  _server.on("/", HTTP_GET, [](AsyncWebServerRequest *req) {
+    req->send(200, "text/html", index_html);
+  });
+
+  _server.on("/data", HTTP_GET, [](AsyncWebServerRequest *req) {
+    req->send(200, "application/json", build_json());
+  });
+
+  _server.on("/toggle", HTTP_GET, [](AsyncWebServerRequest *req) {
+    led_toggle();
+    req->send(200, "text/plain", "OK");
+  });
+
+  _server.begin();
+  Serial.println("[Web] Servidor iniciado (Modo String - No SPIFFS)");
+}
