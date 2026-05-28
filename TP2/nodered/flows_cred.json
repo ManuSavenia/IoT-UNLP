@@ -1,0 +1,5 @@
+{
+    "influxdb-config": {
+        "token": "iot-token-123456"
+    }
+}
